@@ -1,7 +1,10 @@
-t-hubh-credentials')
-        DOCKER_IMAGE_NAME = 'hassanb9/php-app'
-        DOCKER_IMAGE_TAG = 'latest'
-        POWERSHELL_PATH =e 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe'
+pipeline {
+    agent any
+    
+    environment {
+        DOCKER_CREDENTIALS = credentials('docker-hub-credentials')
+        DOCKER_IMAGE = 'hassanb9/php-app'
+        DOCKER_TAG = 'latest'
     }
     
     stages {
@@ -11,24 +14,22 @@ t-hubh-credentials')
             }
         }
         
-        stage('Build Docker Images') {
+        stage('Build') {
             steps {
-                bat 'docker-compose build --no-cache's
+                bat 'docker-compose build --no-cache'
             }
         }
         
-        stage('Run Tests') {
+        stage('Test') {
             steps {
                 script {
                     try {
                         bat 'docker-compose up -d'
-                        // Use full PowerShell path
-                        bat "${env.POWERSHELL_PATH}e -Command Start-Sleep -s 30"
-                        // Health check using curl instead
-                        bat 'curl - f http://localhost:3000'
+                        bat 'timeout /t 30 /nobreak'
+                        bat 'curl -f http://localhost:3000'
                     } catch (Exception e) {
                         bat 'docker-compose logs'
-                        error "Test stage failed: ${e.message}"
+                        error "Test failed: ${e.message}"
                     } finally {
                         bat 'docker-compose down'
                     }
@@ -36,49 +37,41 @@ t-hubh-credentials')
             }
         }
         
-        stage('Push to Docker Hub') {
+        stage('Push') {
             steps {
-                script {
-                    withCredentials([usernamePassword(credentialsId: 'docker-hub-credentials', 
-                                                    passwordVariable: 'DOCKER_PASSWORD', 
-                                                    usernameVariable: 'DOCKER_USERNAME')]) {
-                        bat """
-                            echo %DOCKER_PASSWORD% | docker login -u %DOCKER_USERNAME% --password-stdin
-                            docker tag php-app-web:latest %DOCKER_IMAGE_NAME%:%DOCKER_IMAGE_TAG%
-                            docker push %DOCKER_IMAGE_NAME%:%DOCKER_IMAGE_TAG%
-                        """
-                    }
+                withCredentials([usernamePassword(
+                    credentialsId: 'docker-hub-credentials',
+                    usernameVariable: 'DOCKER_USER',
+                    passwordVariable: 'DOCKER_PASS'
+                )]) {
+                    bat 'docker login -u %DOCKER_USER% -p %DOCKER_PASS%'
+                    bat 'docker tag php-app-web:latest %DOCKER_IMAGE%:%DOCKER_TAG%'
+                    bat 'docker push %DOCKER_IMAGE%:%DOCKER_TAG%'
                 }
             }
         }
         
         stage('Deploy') {
             steps {
-                script {
-                    bat """
-                        docker-compose down || exit 0
-                        docker-compose pull
-                        docker-compose up -d
-                        ${env.POWERSHELL_PATH} -Command Start-Sleep -s 10
-                        curl -f http://localhost:3000
-                    """
-                }
+                bat '''
+                    docker-compose down || exit 0
+                    docker-compose pull
+                    docker-compose up -d
+                    timeout /t 10 /nobreak
+                    curl -f http://localhost:3000
+                '''
             }
         }
     }
     
     post {
         always {
-            script {
-                bat 'docker-compose down || exit 0'
-                bat 'docker logout || exit 0'
-                cleanWs()
-            }
+            bat 'docker-compose down || exit 0'
+            bat 'docker logout || exit 0'
+            cleanWs()
         }
         failure {
-            script {
-                bat 'docker-compose logs'
-            }
+            bat 'docker-compose logs'
         }
     }
 }
