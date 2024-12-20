@@ -7,16 +7,34 @@ services:
       - "3000:80"
     depends_on:
       - mysql
+    volumes:
+      - ./app:/var/www/html
+      - php_logs:/var/log/apache2
     restart: always
+    environment:
+      - PHP_DISPLAY_ERRORS=1
+      - PHP_ERROR_REPORTING=E_ALL
 
   mysql:
     image: mysql:8.0
     environment:
       MYSQL_ROOT_PASSWORD: password
+      MYSQL_DATABASE: test_db
+      MYSQL_USER: appuser
+      MYSQL_PASSWORD: apppassword
     volumes:
       - mysql_data:/var/lib/mysql
       - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+      - mysql_logs:/var/log/mysql
+    ports:
+      - "3306:3306"
     restart: always
+    command: --default-authentication-plugin=mysql_native_password
 
 volumes:
   mysql_data:
+    driver: local
+  php_logs:
+    driver: local
+  mysql_logs:
+    driver: local
