@@ -1,10 +1,7 @@
-pipeline {
-    agent any
-    
-    environment {
-        DOCKER_HUB_CREDS = credentials('docker-hub-credentials')
+t-hubh-credentials')
         DOCKER_IMAGE_NAME = 'hassanb9/php-app'
         DOCKER_IMAGE_TAG = 'latest'
+        POWERSHELL_PATH =e 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe'
     }
     
     stages {
@@ -16,7 +13,7 @@ pipeline {
         
         stage('Build Docker Images') {
             steps {
-                bat 'docker-compose build --no-cache'
+                bat 'docker-compose build --no-cache's
             }
         }
         
@@ -25,10 +22,10 @@ pipeline {
                 script {
                     try {
                         bat 'docker-compose up -d'
-                        // Windows PowerShell sleep command
-                        powershell 'Start-Sleep -s 30'
-                        // Health check
-                        bat 'powershell Invoke-WebRequest -Uri http://localhost:3000 -UseBasicParsing'
+                        // Use full PowerShell path
+                        bat "${env.POWERSHELL_PATH}e -Command Start-Sleep -s 30"
+                        // Health check using curl instead
+                        bat 'curl - f http://localhost:3000'
                     } catch (Exception e) {
                         bat 'docker-compose logs'
                         error "Test stage failed: ${e.message}"
@@ -62,8 +59,8 @@ pipeline {
                         docker-compose down || exit 0
                         docker-compose pull
                         docker-compose up -d
-                        powershell Start-Sleep -s 10
-                        powershell Invoke-WebRequest -Uri http://localhost:3000 -UseBasicParsing
+                        ${env.POWERSHELL_PATH} -Command Start-Sleep -s 10
+                        curl -f http://localhost:3000
                     """
                 }
             }
