@@ -10,33 +10,31 @@ pipeline {
     stages {
         stage('Checkout') {
             steps {
-                script {
-                    checkout scm: [
-                        $class: 'GitSCM',
-                        branches: [[name: '*/main']], // Changed from master to main
-                        userRemoteConfigs: [[
-                            url: 'https://github.com/HassanBaigDEV/dummy.git'
-                        ]]
-                    ]
-                }
+                checkout scm
             }
         }
         
         stage('Build Docker Images') {
             steps {
-                script {
-                    bat 'docker-compose build' // Changed sh to bat for Windows
-                }
+                bat 'docker-compose build --no-cache'
             }
         }
         
         stage('Run Tests') {
             steps {
                 script {
-                    bat 'docker-compose up -d'
-                    bat 'timeout /t 30 /nobreak' // Changed sleep to Windows timeout
-                    bat 'curl http://localhost:3000'
-                    bat 'docker-compose down'
+                    try {
+                        bat 'docker-compose up -d'
+                        // Windows PowerShell sleep command
+                        powershell 'Start-Sleep -s 30'
+                        // Health check
+                        bat 'powershell Invoke-WebRequest -Uri http://localhost:3000 -UseBasicParsing'
+                    } catch (Exception e) {
+                        bat 'docker-compose logs'
+                        error "Test stage failed: ${e.message}"
+                    } finally {
+                        bat 'docker-compose down'
+                    }
                 }
             }
         }
@@ -44,10 +42,14 @@ pipeline {
         stage('Push to Docker Hub') {
             steps {
                 script {
-                    withCredentials([usernamePassword(credentialsId: 'docker-hub-credentials', usernameVariable: 'DOCKER_HUB_USER', passwordVariable: 'DOCKER_HUB_PASS')]) {
-                        bat "docker login -u %DOCKER_HUB_USER% -p %DOCKER_HUB_PASS%"
-                        bat "docker tag php-app-web:latest %DOCKER_IMAGE_NAME%:%DOCKER_IMAGE_TAG%"
-                        bat "docker push %DOCKER_IMAGE_NAME%:%DOCKER_IMAGE_TAG%"
+                    withCredentials([usernamePassword(credentialsId: 'docker-hub-credentials', 
+                                                    passwordVariable: 'DOCKER_PASSWORD', 
+                                                    usernameVariable: 'DOCKER_USERNAME')]) {
+                        bat """
+                            echo %DOCKER_PASSWORD% | docker login -u %DOCKER_USERNAME% --password-stdin
+                            docker tag php-app-web:latest %DOCKER_IMAGE_NAME%:%DOCKER_IMAGE_TAG%
+                            docker push %DOCKER_IMAGE_NAME%:%DOCKER_IMAGE_TAG%
+                        """
                     }
                 }
             }
@@ -56,9 +58,13 @@ pipeline {
         stage('Deploy') {
             steps {
                 script {
-                    bat 'docker-compose down || exit 0'
-                    bat 'docker-compose pull'
-                    bat 'docker-compose up -d'
+                    bat """
+                        docker-compose down || exit 0
+                        docker-compose pull
+                        docker-compose up -d
+                        powershell Start-Sleep -s 10
+                        powershell Invoke-WebRequest -Uri http://localhost:3000 -UseBasicParsing
+                    """
                 }
             }
         }
@@ -66,9 +72,16 @@ pipeline {
     
     post {
         always {
-            bat 'docker-compose down || exit 0'
-            bat 'docker logout'
-            cleanWs() // Clean workspace after build
+            script {
+                bat 'docker-compose down || exit 0'
+                bat 'docker logout || exit 0'
+                cleanWs()
+            }
+        }
+        failure {
+            script {
+                bat 'docker-compose logs'
+            }
         }
     }
 }
