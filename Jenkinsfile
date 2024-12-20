@@ -2,37 +2,16 @@ pipeline {
     agent any
     
     environment {
-        DOCKER_REGISTRY_CREDENTIALS = credentials('docker-hub-credentials')
+        DOCKER_CREDENTIALS = credentials('docker-hub-credentials')
         DOCKER_IMAGE = 'hassanb9/php-app'
         DOCKER_TAG = 'latest'
     }
     
     stages {
-        stage('Checkout') {
-            steps {
-                checkout scm
-            }
-        }
-
-        stage('Docker Login') {
-            steps {
-                script {
-                    withCredentials([usernamePassword(
-                        credentialsId: 'docker-hub-credentials',
-                        passwordVariable: 'DOCKER_PASSWORD',
-                        usernameVariable: 'DOCKER_USERNAME'
-                    )]) {
-                        bat "docker login -u ${DOCKER_USERNAME} -p ${DOCKER_PASSWORD}"
-                    }
-                }
-            }
-        }
-
         stage('Build') {
             steps {
                 script {
                     try {
-                        bat 'docker pull php:8.1-apache'
                         bat 'docker-compose build --no-cache'
                     } catch (Exception e) {
                         error "Build failed: ${e.message}"
@@ -46,8 +25,12 @@ pipeline {
                 script {
                     try {
                         bat 'docker-compose up -d'
-                        bat 'timeout /t 30 /nobreak'
+                        // Use ping for delay instead of timeout
+                        bat 'ping -n 30 127.0.0.1 > nul'
                         bat 'curl -f http://localhost:3000'
+                    } catch (Exception e) {
+                        bat 'docker-compose logs'
+                        error "Test failed: ${e.message}"
                     } finally {
                         bat 'docker-compose down'
                     }
@@ -57,8 +40,17 @@ pipeline {
         
         stage('Push') {
             steps {
-                bat "docker tag php-app-web:latest ${DOCKER_IMAGE}:${DOCKER_TAG}"
-                bat "docker push ${DOCKER_IMAGE}:${DOCKER_TAG}"
+                script {
+                    withCredentials([usernamePassword(
+                        credentialsId: 'docker-hub-credentials',
+                        usernameVariable: 'DOCKER_USER',
+                        passwordVariable: 'DOCKER_PASS'
+                    )]) {
+                        bat 'docker login -u %DOCKER_USER% -p %DOCKER_PASS%'
+                        bat 'docker tag php-app-web:latest %DOCKER_IMAGE%:%DOCKER_TAG%'
+                        bat 'docker push %DOCKER_IMAGE%:%DOCKER_TAG%'
+                    }
+                }
             }
         }
         
@@ -66,9 +58,8 @@ pipeline {
             steps {
                 bat '''
                     docker-compose down || exit 0
-                    docker-compose pull
                     docker-compose up -d
-                    timeout /t 10 /nobreak
+                    ping -n 10 127.0.0.1 > nul
                     curl -f http://localhost:3000
                 '''
             }
@@ -77,8 +68,10 @@ pipeline {
     
     post {
         always {
-            bat 'docker-compose down || exit 0'
-            bat 'docker logout || exit 0'
+            bat '''
+                docker-compose down || exit 0
+                docker logout || exit 0
+            '''
             cleanWs()
         }
         failure {
